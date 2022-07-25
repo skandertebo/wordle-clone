@@ -80,26 +80,29 @@ function App() {
           {keys}
           <div className="key" key={'enter'} id="enter" onClick={()=>{
             if(currentWord.length==5){
-              setWords(prev=>{
-                  let newWords = prev;
-                  newWords[currentWordIndex] = currentWord ;
-                  return newWords;
-                }) ;
-                toggleInvalidWord(false);
-                setCurrentWordIndex(prev=>prev+1);
-                setCurrentWord('');
-              if(solution.toUpperCase()==currentWord.toUpperCase()){
-                setTimeout(()=>{setGameState(WON);},1100)
-                if(invalidWord){
+              if(setOfWords.includes(currentWord.toLowerCase())){
+                setWords(prev=>{
+                    let newWords = prev;
+                    newWords[currentWordIndex] = currentWord ;
+                    return newWords;
+                  }) ;
                   toggleInvalidWord(false);
+                  setCurrentWordIndex(prev=>prev+1);
+                  setCurrentWord('');
+                if(solution.toUpperCase()==currentWord.toUpperCase()){
+                  setTimeout(()=>{setGameState(WON);},1100)
+                  if(invalidWord){
+                    toggleInvalidWord(false);
+                  }
+                }
+                else if(currentWordIndex==5){
+                  setTimeout(()=>{setGameState(LOST);},1100);
                 }
               }
-              else if(!setOfWords.includes(currentWord.toLowerCase())){
+              else {
                 toggleInvalidWord(true);
               }
-              else if(currentWordIndex==5){
-                setTimeout(()=>{setGameState(LOST);},1100);
-              }
+
             }
           }}><button>Enter</button></div>
           <div className="key" key={'back'} id="back" onClick={()=>{
