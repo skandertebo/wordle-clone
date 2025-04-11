@@ -18,14 +18,17 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
+# Install envsubst to handle environment variables in nginx config
+RUN apk add --no-cache gettext
+
 # Copy the built files from the build stage
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy custom nginx configuration if needed
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy and configure nginx configuration
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# Expose port 80
-EXPOSE 80
+# Expose the port (Cloud Run will override this)
+EXPOSE 8080
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start Nginx with environment variable substitution
+CMD ["/bin/sh", "-c", "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
