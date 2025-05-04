@@ -5,6 +5,7 @@ pipeline {
         PROJECT_ID = 'personal-409116'
         REGION = 'us-central1'
         DOCKER_IMAGE = "${REGION}-docker.pkg.dev/${PROJECT_ID}/wordle/wordle:latest"
+        PATH = "/usr/local/bin:${env.PATH}"
     }
 
     stages {
