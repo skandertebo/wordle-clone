@@ -1,0 +1,147 @@
+---
+- name: Deploy Wordle application
+  hosts: webservers
+  become: true
+  vars:
+    docker_image: "{{ var.region }}-docker.pkg.dev/{{ var.project_id }}/wordle/wordle:latest"
+    container_name: wordle
+    container_port: 8080
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running and enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Docker Module for Python
+      pip:
+        name: docker
+
+    - name: Check if gcloud is installed
+      stat:
+        path: /usr/bin/gcloud
+      register: gcloud_installed
+
+    - name: Add Google Cloud SDK repository
+      shell: |
+        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+      when: not gcloud_installed.stat.exists
+      changed_when: true
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: not gcloud_installed.stat.exists
+
+    - name: Install Google Cloud SDK
+      apt:
+        name: google-cloud-sdk
+        state: present
+      when: not gcloud_installed.stat.exists
+      register: gcloud_install
+
+    - name: Check Docker credential helper configuration
+      stat:
+        path: /root/.docker/config.json
+      register: docker_config
+
+    - name: Configure Docker to use gcloud as a credential helper
+      command: gcloud auth configure-docker {{ var.region }}-docker.pkg.dev --quiet
+      when: not docker_config.stat.exists
+      register: docker_configure
+      changed_when: docker_configure.rc == 0
+
+    - name: Create service account key file
+      copy:
+        content: "{{ lookup('env', 'GOOGLE_APPLICATION_CREDENTIALS_JSON') }}"
+        dest: /tmp/service-account.json
+        mode: '0600'
+      when: lookup('env', 'GOOGLE_APPLICATION_CREDENTIALS_JSON') is defined
+
+    - name: Authenticate with Google Cloud using service account
+      command: gcloud auth activate-service-account --key-file=/tmp/service-account.json
+      when: lookup('env', 'GOOGLE_APPLICATION_CREDENTIALS_JSON') is defined
+      register: gcloud_auth
+      changed_when: gcloud_auth.rc == 0
+
+    - name: Set Google Cloud project
+      command: gcloud config set project {{ var.project_id }}
+      register: gcloud_project
+      changed_when: gcloud_project.rc == 0
+
+    - name: Check if Docker image exists
+      docker_image:
+        name: "{{ docker_image }}"
+        source: local
+      register: docker_image_check
+      ignore_errors: yes
+
+    - name: Pull Docker image
+      docker_image:
+        name: "{{ docker_image }}"
+        source: pull
+        force_source: yes
+      when: not docker_image_check.failed
+
+    - name: Get container information
+      docker_container_info:
+        name: "{{ container_name }}"
+      register: container_info
+      ignore_errors: yes
+
+    - name: Stop and remove existing container
+      docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      when: container_info.container is defined
+      ignore_errors: yes
+
+    - name: Run Docker container
+      docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        ports:
+          - "{{ container_port }}:8080"
+        restart_policy: always
+      register: container_run
+
+    - name: Verify container is running
+      docker_container_info:
+        name: "{{ container_name }}"
+      register: container_verify
+      failed_when: container_verify.container.State.Status != "running" 

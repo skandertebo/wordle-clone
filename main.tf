@@ -12,6 +12,109 @@ provider "google" {
   region  = var.region
 }
 
+# Create VPC network
+resource "google_compute_network" "wordle_network" {
+  name                    = "wordle-network"
+  auto_create_subnetworks = false
+}
+
+# Create subnet
+resource "google_compute_subnetwork" "wordle_subnet" {
+  name          = "wordle-subnet"
+  ip_cidr_range = "10.0.0.0/24"
+  network       = google_compute_network.wordle_network.id
+  region        = var.region
+}
+
+# Create firewall rules
+resource "google_compute_firewall" "allow_ssh" {
+  name    = "allow-ssh"
+  network = google_compute_network.wordle_network.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["ssh"]
+}
+
+resource "google_compute_firewall" "allow_http" {
+  name    = "allow-http"
+  network = google_compute_network.wordle_network.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "443"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["http-server"]
+}
+
+# Create web server instances
+resource "google_compute_instance" "web_servers" {
+  count        = 2
+  name         = "web-server-${count.index + 1}"
+  machine_type = "e2-micro"
+  zone         = "${var.region}-a"
+
+  tags = ["http-server", "ssh"]
+
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-2204-lts"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.wordle_subnet.name
+    access_config {
+      // Ephemeral public IP
+    }
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}"
+  }
+}
+
+# Create database server instance
+resource "google_compute_instance" "db_server" {
+  name         = "db-server"
+  machine_type = "e2-micro"
+  zone         = "${var.region}-a"
+
+  tags = ["ssh"]
+
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-2204-lts"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.wordle_subnet.name
+    access_config {
+      // Ephemeral public IP
+    }
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}"
+  }
+}
+
+# Output the IP addresses for Ansible
+output "web_server_ips" {
+  value = google_compute_instance.web_servers[*].network_interface[0].access_config[0].nat_ip
+}
+
+output "db_server_ip" {
+  value = google_compute_instance.db_server.network_interface[0].access_config[0].nat_ip
+}
+
 # Create Artifact Registry repository
 resource "google_artifact_registry_repository" "wordle" {
   location      = var.region
